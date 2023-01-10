@@ -47,8 +47,8 @@ Our project can be used in most of the time when people have something to do the
 #URLS
     # connect to the openVpn to access TAMK cloud server. Browse the urls as mentiion to se the frontend and backend of the Todo web app
 
-    - Frontend: `http://172.16.4.208:8080/`
-    - Backend: `http://172.16.4.208:4040/`
+    - Frontend: `http://server-ip-address:8080/`
+    - Backend: `http://server-ip-address:4040/`
 
 ## Running the project locally
 
