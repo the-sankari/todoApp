@@ -1,0 +1,91 @@
+variables:
+  REMOTE_HOST: deploy@server-ip-address
+  FRONTEND_IMAGE: ${CI_REGISTRY_IMAGE}/frontend
+  BACKEND_IMAGE: ${CI_REGISTRY_IMAGE}/backend
+
+
+stages:          # List of stages for jobs, and their order of execution
+  - build
+  - test
+  - deploy
+
+build-job-main:       # This job runs in the build stage, which runs first.
+  image: docker:latest
+  stage: build
+  services:
+    - docker:dind
+  script:
+    - docker login -u gitlab-ci-token -p "${CI_JOB_TOKEN}" "${CI_REGISTRY}"
+    # Build & push backend
+    - docker build -f backend/DockerfileServer -t "${BACKEND_IMAGE}" .
+    - docker push "${BACKEND_IMAGE}"
+    # Build & push frontend
+    - docker build -f frontend/DockerfileServer -t "${FRONTEND_IMAGE}" .
+    - docker push "${FRONTEND_IMAGE}"
+  only:
+    - main
+
+build-job:       # This job runs in the build stage, which runs first.
+  image: docker:latest
+  stage: build
+  services:
+    - docker:dind
+  script:
+    # Build backend
+    - docker build -f backend/DockerfileServer -t "${BACKEND_IMAGE}" .
+    # Build frontend
+    - docker build -f frontend/DockerfileServer -t "${FRONTEND_IMAGE}" .
+  except:
+    - main
+
+unit-test-job:   # This job runs in the test stage.
+  image: node:latest
+  stage: test    # It only starts when the job in the build stage completes successfully.
+  script:
+    # Go to frontend directory
+    - cd frontend
+    # Run npm commands
+    - npm install && npm test
+    # Go to backend directory
+    - cd ../backend
+    # Run npm commands
+    - npm install && npm test
+
+
+lint-test-job:   # This job also runs in the test stage.
+  stage: test    # It can run at the same time as unit-test-job (in parallel).
+  script:
+    - echo "Linting code... This will take about 10 seconds."
+    - sleep 10
+    - echo "No lint issues found."
+    
+deploy-job:
+  image: alpine:latest
+  stage: deploy
+  environment:
+    name: main
+    url: $server-ip-address
+  script:
+    - apk update && apk add rsync openssh curl
+    # Prepare SSH settings
+    - mkdir -p ~/.ssh && (umask  077 ; echo "${DEPLOY_KEY_PRIVATE}" | base64 -d > ~/.ssh/id_rsa)
+    - echo -e "Host *\n\tStrictHostKeyChecking no\n\n" > ~/.ssh/config
+    # Prepare files for transfer
+    - mkdir remote_dir
+    - cp docker-compose.server.yml remote_dir/docker-compose.yml
+    - echo "BACKEND_IMAGE=${BACKEND_IMAGE}" >> remote_dir/.env
+    - echo "FRONTEND_IMAGE=${FRONTEND_IMAGE}" >> remote_dir/.env
+    # Transfer to server
+    - rsync -r remote_dir "${REMOTE_HOST}:./"
+    # Run commands on the server
+    - ssh ${REMOTE_HOST} /bin/bash 
+            "
+            echo 'Starting..';
+            cd ~/remote_dir;
+            docker login -u gitlab-ci-token -p $CI_JOB_TOKEN $CI_REGISTRY;
+            docker-compose pull;
+            docker-compose up -d;
+            "
+  only:
+    - main
+
